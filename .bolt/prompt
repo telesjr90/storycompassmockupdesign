@@ -1,0 +1,11 @@
+Story Compass is a local-first writing organizer for amateur writers, especially those with ADHD.
+
+Modify the existing React/TypeScript prototype; never rebuild it. Preserve its olive/cream visual design, navigation, components and working functionality. Prefer minimal code changes, reusable components and existing dependencies.
+
+AI may organize, retrieve and question existing story information but NEVER generate/rewrite creative prose, invent story facts, or approve canon automatically. Preserve exact writer text. Show confirmed, tentative and unknown information clearly.
+
+Prototype only: use project-scoped browser storage for interactive persistence; label simulated AI features honestly. Never claim real backend integration.
+
+Every visible control must work or clearly explain why unavailable. Preserve accessibility, keyboard support, error feedback and writer-controlled approvals.
+
+For each task: inspect only relevant files, implement the requested scope, run targeted checks, fix directly related errors and briefly report results. Do not expand scope, redesign unrelated pages, or generate lengthy documentation.
