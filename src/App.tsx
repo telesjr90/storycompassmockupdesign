@@ -1,7 +1,11 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { TimelineExplorer } from '@/components/TimelineExplorer';
 import { WritingWorkspace } from '@/components/WritingWorkspace';
+import { ProjectSwitcher } from '@/components/ProjectSwitcher';
+import { IdeaInbox } from '@/components/IdeaInbox';
 import type { TimelineEventRecord, TimelineGroup } from '@/components/TimelineExplorer';
+import type { Project, ProjectData } from '@/lib/storage';
+import { loadWorkspace, saveWorkspace } from '@/lib/storage';
 import {
   ArrowLeft,
   ArrowRight,
@@ -35,7 +39,6 @@ import {
 } from 'lucide-react';
 
 type View = 'home' | 'inbox' | 'bible' | 'timeline' | 'writing' | 'tasks';
-type EventStatus = 'saved' | 'confirmed';
 type Modal = 'add-event' | 'confirm-event' | 'order' | 'confirm-order' | 'edit-character' | null;
 
 type StoryEvent = TimelineEventRecord;
@@ -138,7 +141,7 @@ const characters: Character[] = [
 
 const navItems: { id: View; label: string; icon: typeof HomeIcon; count?: string }[] = [
   { id: 'home', label: 'Home', icon: HomeIcon },
-  { id: 'inbox', label: 'Idea Inbox', icon: Inbox, count: '3' },
+  { id: 'inbox', label: 'Idea Inbox', icon: Inbox },
   { id: 'bible', label: 'Story Bible', icon: BookOpen },
   { id: 'timeline', label: 'Plot & Timeline', icon: Clock3, count: '1' },
   { id: 'writing', label: 'Writing', icon: NotebookPen },
@@ -146,6 +149,7 @@ const navItems: { id: View; label: string; icon: typeof HomeIcon; count?: string
 ];
 
 function App() {
+  const [{ projects, activeProjectId }, setWorkspace] = useState(loadWorkspace);
   const [view, setView] = useState<View>('home');
   const [events, setEvents] = useState<StoryEvent[]>(initialEvents);
   const [selectedCharacter, setSelectedCharacter] = useState(0);
@@ -161,8 +165,69 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [newEvent, setNewEvent] = useState({ text: '', date: '', notes: '' });
-  const [writingText, setWritingText] = useState('');
   const [completedTasks, setCompletedTasks] = useState<string[]>(['bible']);
+  const [savedProjects, setSavedProjects] = useState<string[]>([]);
+
+  const activeProject = projects.find((project) => project.id === activeProjectId) ?? projects[0];
+  const projectData: ProjectData = activeProject?.data ?? { ideas: [], writingText: '' };
+  const [writingText, setWritingText] = useState(projectData.writingText);
+  const writingDirty = writingText !== projectData.writingText;
+
+  useEffect(() => {
+    setWritingText(projectData.writingText);
+  }, [activeProjectId, projectData.writingText]);
+
+  const flashSaved = (projectId: string) => {
+    setSavedProjects((current) => [...current, projectId]);
+    window.setTimeout(() => setSavedProjects((current) => current.filter((id) => id !== projectId)), 1800);
+  };
+
+  const updateProject = (projectId: string, data: Partial<ProjectData>, toastMessage?: string) => {
+    setWorkspace((current) => {
+      const nextProjects = current.projects.map((project) => (
+        project.id === projectId
+          ? { ...project, data: { ...project.data, ...data }, lastOpenedAt: Date.now() }
+          : project
+      ));
+      saveWorkspace({ projects: nextProjects, activeProjectId: current.activeProjectId });
+      return { projects: nextProjects, activeProjectId: current.activeProjectId };
+    });
+    flashSaved(projectId);
+    if (toastMessage) showToast(toastMessage);
+  };
+
+  const selectProject = (id: string) => {
+    setWorkspace((current) => {
+      const nextProjects = current.projects.map((project) => (
+        project.id === id ? { ...project, lastOpenedAt: Date.now() } : project
+      ));
+      saveWorkspace({ projects: nextProjects, activeProjectId: id });
+      return { projects: nextProjects, activeProjectId: id };
+    });
+    setView('home');
+    showToast(`Switched to ${projects.find((project) => project.id === id)?.name ?? 'project'}.`);
+  };
+
+  const createProject = (name: string) => {
+    const project: Project = {
+      id: `project-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      name,
+      createdAt: Date.now(),
+      lastOpenedAt: Date.now(),
+      data: { ideas: [], writingText: '' },
+    };
+    setWorkspace((current) => {
+      const next = { projects: [...current.projects, project], activeProjectId: project.id };
+      saveWorkspace(next);
+      return next;
+    });
+    setView('home');
+    showToast(`Project “${name}” created and ready.`);
+  };
+
+  const updateIdeas = (ideas: ProjectData['ideas']) => {
+    updateProject(activeProjectId, { ideas });
+  };
 
   const selectedEvent = events.find((event) => event.id === selectedEventId) ?? events[0];
   const orderFirst = events.find((event) => event.id === orderFirstId) ?? events[0];
@@ -223,6 +288,10 @@ function App() {
     showToast('Character information saved.');
   };
 
+  const saveWriting = () => {
+    updateProject(activeProjectId, { writingText }, 'Manuscript saved to this project.');
+  };
+
   const pageTitle = useMemo(() => navItems.find((item) => item.id === view)?.label ?? 'Home', [view]);
 
   return (
@@ -233,30 +302,38 @@ function App() {
           {!sidebarCollapsed && <div><div className="brand-name">story compass</div><div className="brand-tagline">A little direction. More story.</div></div>}
           <button className="icon-button sidebar-close" onClick={() => setSidebarOpen(false)} aria-label="Close navigation"><X size={18} /></button>
         </div>
-        {!sidebarCollapsed && <div className="workspace-picker"><span>Your workspace</span><button className="project-select">Detective Story <ChevronDown size={15} /></button></div>}
+        {!sidebarCollapsed && (
+          <div className="workspace-picker">
+            <span>Your workspace</span>
+            <ProjectSwitcher projects={projects} activeProjectId={activeProjectId} onSelect={selectProject} onCreate={createProject} />
+            <div className={`save-indicator ${savedProjects.includes(activeProjectId) ? 'visible' : ''}`} role="status">
+              <Check size={12} /> Saved
+            </div>
+          </div>
+        )}
         <nav className="main-nav" aria-label="Main navigation">
           {navItems.map((item) => {
             const Icon = item.icon;
             return <button key={item.id} className={`nav-item ${view === item.id ? 'nav-item-active' : ''}`} onClick={() => goTo(item.id)} title={sidebarCollapsed ? item.label : undefined}><Icon size={18} /><span>{!sidebarCollapsed && item.label}</span>{!sidebarCollapsed && item.count && <span className="nav-count">{item.count}</span>}</button>;
           })}
         </nav>
-        {!sidebarCollapsed && <div className="sidebar-footer"><div className="prototype-pill"><Sparkles size={14} /> Interactive prototype</div><div className="local-status"><span className="status-dot" /> Local workspace</div></div>}
+        {!sidebarCollapsed && <div className="sidebar-footer"><div className="prototype-pill"><Sparkles size={14} /> Interactive prototype</div><div className="local-status"><span className="status-dot" /> Saved on this device</div></div>}
         <button className="collapse-button" onClick={() => setSidebarCollapsed((collapsed) => !collapsed)} aria-label={sidebarCollapsed ? 'Expand navigation' : 'Collapse navigation'}>{sidebarCollapsed ? <PanelLeftOpen size={18} /> : <><PanelLeftClose size={18} /> Collapse</>}</button>
       </aside>
 
       <main className="main-area">
         <header className="topbar">
           <button className="icon-button mobile-menu" onClick={() => setSidebarOpen(true)} aria-label="Open navigation"><Menu size={20} /></button>
-          <div className="breadcrumbs"><span>Detective Story</span><ChevronRight size={14} /><strong>{pageTitle}</strong></div>
+          <div className="breadcrumbs"><span>{activeProject?.name ?? 'Project'}</span><ChevronRight size={14} /><strong>{pageTitle}</strong></div>
           <div className="topbar-actions"><span className="prototype-label"><span className="status-dot" /> Prototype mode</span><button className="icon-button" aria-label="Notifications"><Bell size={18} /></button><div className="avatar">DW</div></div>
         </header>
         <div className="page-content">
-          {view === 'home' && <HomeView goTo={goTo} />}
-          {view === 'inbox' && <InboxView goTo={goTo} />}
+          {view === 'home' && <HomeView goTo={goTo} projectName={activeProject?.name ?? ''} ideas={projectData.ideas} writingText={projectData.writingText} lastOpenedAt={activeProject?.lastOpenedAt} />}
+          {view === 'inbox' && <IdeaInbox ideas={projectData.ideas} onUpdate={updateIdeas} onToast={showToast} goTo={goTo} />}
           {view === 'bible' && <BibleView characters={characterData} activeIndex={selectedCharacter} onSelect={setSelectedCharacter} onEdit={() => setModal('edit-character')} />}
           {view === 'timeline' && <TimelineView events={events} selectedEventId={selectedEventId} setSelectedEventId={setSelectedEventId} orderFirstId={orderFirstId} setOrderFirstId={setOrderFirstId} orderSecondId={orderSecondId} setOrderSecondId={setOrderSecondId} orderDirection={orderDirection} setOrderDirection={setOrderDirection} confirmedOrder={confirmedOrder} orderNeedsConfirmation={orderNeedsConfirmation} onAdd={() => setModal('add-event')} onConfirmEvent={() => { setConfirmingForOrder(false); setModal('confirm-event'); }} onReviewOrder={() => { if (orderNeedsConfirmation) { const pendingEvent = orderFirst.status !== 'confirmed' ? orderFirst : orderSecond; setSelectedEventId(pendingEvent.id); setConfirmingForOrder(true); setModal('confirm-event'); } else { setConfirmingForOrder(false); setModal('order'); } }} onTimelineUpdate={setEvents} onToast={showToast} />}
-          {view === 'writing' && <WritingWorkspace text={writingText} setText={setWritingText} characters={characterData} events={events} onSave={() => showToast('Your writing is saved right here.')} onToast={showToast} />}
-          {view === 'tasks' && <TasksView completedTasks={completedTasks} toggleTask={toggleTask} goTo={goTo} />}
+          {view === 'writing' && <WritingWorkspace key={activeProjectId} text={writingText} setText={setWritingText} characters={characterData} events={events} projectName={activeProject?.name ?? ''} dirty={writingDirty} justSaved={savedProjects.includes(activeProjectId)} onSave={saveWriting} onToast={showToast} />}
+          {view === 'tasks' && <TasksView completedTasks={completedTasks} toggleTask={toggleTask} goTo={goTo} ideaCount={projectData.ideas.length} />}
         </div>
       </main>
 
@@ -273,20 +350,38 @@ function CompassMark() {
   return <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" strokeWidth="2" /><path d="M21.5 10.5 18 18l-7.5 3.5L14 14l7.5-3.5Z" fill="currentColor" /></svg>;
 }
 
-function HomeView({ goTo }: { goTo: (view: View) => void }) {
+function formatLastActivity(lastOpenedAt: number | undefined): string {
+  if (!lastOpenedAt) return 'No activity yet';
+  const diff = Date.now() - lastOpenedAt;
+  const hours = Math.floor(diff / (3600 * 1000));
+  if (hours < 1) return 'Earlier today';
+  if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+  const days = Math.floor(hours / 24);
+  if (days === 1) return 'Yesterday';
+  if (days === 2) return 'Two days ago';
+  return `${days} days ago`;
+}
+
+function HomeView({ goTo, projectName, ideas, writingText, lastOpenedAt }: { goTo: (view: View) => void; projectName: string; ideas: { id: string }[]; writingText: string; lastOpenedAt: number | undefined }) {
+  const hasIdeas = ideas.length > 0;
   return <div className="view home-view">
-    <PageIntro eyebrow="Your writing space" title="Welcome back, Dana." description={<>Let’s find one clear way back into <strong>Detective Story</strong>.</>} />
+    <PageIntro eyebrow="Your writing space" title="Welcome back, Dana." description={<>Let’s find one clear way back into <strong>{projectName}</strong>.</>} />
     <div className="home-grid">
       <section className="resume-card">
         <div className="card-kicker"><span className="kicker-dot" /> Your recorded place</div>
-        <div className="resume-number">1</div>
-        <h2>Continue the chapter you opened last time.</h2>
+        <div className="resume-number">{writingText ? '✓' : '1'}</div>
+        <h2>{writingText ? 'Your draft is saved and waiting.' : 'Continue the chapter you opened last time.'}</h2>
         <p>Writing is available now. Planning and focus sessions are optional.</p>
         <button className="button button-primary" onClick={() => goTo('writing')}><NotebookPen size={17} /> Continue writing <ArrowRight size={16} /></button>
-        <div className="resume-meta"><span>Last writing session</span><strong>Yesterday, 4:18 PM</strong></div>
+        <div className="resume-meta"><span>Last activity</span><strong>{formatLastActivity(lastOpenedAt)}</strong></div>
         <button className="text-link" onClick={() => goTo('writing')}>Open chapter 1 <ArrowRight size={14} /></button>
       </section>
-      <aside className="held-card"><div className="section-label"><StickyNote size={16} /> Held for you</div><div className="held-item"><span>Current writing focus</span><strong>Continue the opening chapter in your own words.</strong></div><div className="held-item"><span>Recent saved information</span><strong>Two timeline moments are ready to place.</strong></div><div className="held-item"><span>Unanswered questions</span><strong>6 questions are waiting in your Story Bible.</strong></div></aside>
+      <aside className="held-card">
+        <div className="section-label"><StickyNote size={16} /> Held for you</div>
+        <div className="held-item"><span>Recent work</span><strong>{hasIdeas ? `${ideas.length} idea${ideas.length === 1 ? '' : 's'} captured in your inbox.` : 'No captured ideas yet.'}</strong></div>
+        <div className="held-item"><span>Unanswered questions</span><strong>6 questions are waiting in your Story Bible.</strong></div>
+        <div className="held-item"><span>Manuscript</span><strong>{writingText ? 'Draft saved on this device.' : 'Chapter 1 is still empty.'}</strong></div>
+      </aside>
     </div>
     <section className="focus-section"><div className="section-heading"><div><div className="section-label"><Target size={16} /> One thing to focus on</div><h2>Make one small decision about the timeline.</h2><p>Event A is saved, but not yet confirmed. Confirming it keeps your original words and tells Story Compass you stand behind this detail.</p></div><button className="button button-secondary" onClick={() => goTo('timeline')}>Review timeline <ArrowRight size={16} /></button></div></section>
     <div className="quick-grid"><button className="quick-card" onClick={() => goTo('inbox')}><div className="quick-icon peach"><Lightbulb size={19} /></div><div><strong>Capture an idea</strong><span>Keep the thought before you decide where it belongs.</span></div><ArrowRight size={17} /></button><button className="quick-card" onClick={() => goTo('bible')}><div className="quick-icon olive"><UsersRound size={19} /></div><div><strong>Open the Story Bible</strong><span>See what is known and what is still open.</span></div><ArrowRight size={17} /></button></div>
@@ -295,14 +390,6 @@ function HomeView({ goTo }: { goTo: (view: View) => void }) {
 
 function PageIntro({ eyebrow, title, description, action }: { eyebrow: string; title: string; description: React.ReactNode; action?: React.ReactNode }) {
   return <div className="page-intro"><div><div className="eyebrow">{eyebrow}</div><h1>{title}</h1><p>{description}</p></div>{action}</div>;
-}
-
-function InboxView({ goTo }: { goTo: (view: View) => void }) {
-  return <div className="view"><PageIntro eyebrow="Idea inbox" title="Keep the sparks safe." description="Capture first. Decide where an idea belongs when you have more room to think." action={<button className="button button-primary"><Plus size={17} /> Capture an idea</button>} /><div className="inbox-layout"><section className="idea-list"><div className="list-toolbar"><strong>3 captured ideas</strong><button className="filter-button"><Search size={15} /> Search</button></div><IdeaRow title="The detective only has analog equipment" meta="Captured yesterday" label="Unsorted" /><IdeaRow title="Someone is still looking for the secretary" meta="Captured Nov 24" label="Needs a decision" /><IdeaRow title="The accident changes what he knows" meta="Captured Nov 22" label="Unsorted" /></section><aside className="side-note"><div className="note-icon"><Lightbulb size={18} /></div><h3>Ideas stay in your words</h3><p>This inbox does not rewrite, summarize, or decide what becomes true. You choose what to develop next.</p><button className="text-link" onClick={() => goTo('tasks')}>See unfinished work <ArrowRight size={14} /></button></aside></div></div>;
-}
-
-function IdeaRow({ title, meta, label }: { title: string; meta: string; label: string }) {
-  return <button className="idea-row"><div className="idea-bullet"><Lightbulb size={17} /></div><div className="idea-copy"><strong>{title}</strong><span>{meta}</span></div><span className="soft-tag">{label}</span><ChevronRight size={17} /> </button>;
 }
 
 function BibleView({ characters: characterList, activeIndex, onSelect, onEdit }: { characters: Character[]; activeIndex: number; onSelect: (index: number) => void; onEdit: () => void }) {
@@ -323,12 +410,8 @@ function TimelineEvent({ event, selected, onSelect, onConfirm }: { event: StoryE
   return <div className={`timeline-event ${selected ? 'timeline-event-selected' : ''}`}><div className={`event-node ${event.status}`}><span>{event.status === 'confirmed' ? <Check size={14} /> : ''}</span></div><button className="event-card" onClick={onSelect}><div className="event-card-top"><span className="event-label">{event.label}</span><span className={`event-status ${event.status}`}>{event.status === 'confirmed' ? <><CheckCircle2 size={14} /> Confirmed</> : <><Clock3 size={14} /> Saved</>}</span></div><p>{event.text}</p><div className="event-bottom"><span>{event.date ? event.date : 'Date unknown'}</span>{event.status === 'saved' && <span className="event-action" onClick={(clickEvent) => { clickEvent.stopPropagation(); onConfirm(); }}>Review and confirm <ArrowRight size={13} /></span>}</div></button></div>;
 }
 
-function WritingView({ text, setText, onSave }: { text: string; setText: (text: string) => void; onSave: () => void }) {
-  return <div className="view writing-view"><PageIntro eyebrow="Writing" title="Chapter 1" description="A quiet place to continue. Your words stay yours." action={<button className="button button-primary" onClick={onSave}><Check size={17} /> Save writing</button>} /><div className="writing-toolbar"><span><FileText size={16} /> Draft · Chapter 1</span><span>Last saved yesterday, 4:18 PM</span></div><div className="writing-paper"><div className="paper-title">Chapter 1</div><textarea value={text} onChange={(event) => setText(event.target.value)} placeholder="Begin wherever it feels easiest. You do not need to solve the whole story today." aria-label="Chapter 1 writing area" /><div className="paper-footer"><span>Write in your own words</span><span>{text.length} characters</span></div></div><div className="writing-reminder"><StickyNote size={17} /><span><strong>When you return:</strong> You were exploring the detective’s home and the things he takes from his neighbors.</span></div></div>;
-}
-
-function TasksView({ completedTasks, toggleTask, goTo }: { completedTasks: string[]; toggleTask: (id: string) => void; goTo: (view: View) => void }) {
-  const tasks = [{ id: 'timeline', title: 'Confirm the saved timeline event', detail: 'Event A is waiting for your decision.', action: 'Open timeline', view: 'timeline' as View }, { id: 'bible', title: 'Review the open character questions', detail: 'Six questions are intentionally unanswered.', action: 'Open Story Bible', view: 'bible' as View }, { id: 'writing', title: 'Continue Chapter 1', detail: 'Pick up from your recorded writing focus.', action: 'Continue writing', view: 'writing' as View }, { id: 'inbox', title: 'Sort one captured idea', detail: 'Your inbox has three ideas waiting.', action: 'Open idea inbox', view: 'inbox' as View }];
+function TasksView({ completedTasks, toggleTask, goTo, ideaCount }: { completedTasks: string[]; toggleTask: (id: string) => void; goTo: (view: View) => void; ideaCount: number }) {
+  const tasks = [{ id: 'timeline', title: 'Confirm the saved timeline event', detail: 'Event A is waiting for your decision.', action: 'Open timeline', view: 'timeline' as View }, { id: 'bible', title: 'Review the open character questions', detail: 'Six questions are intentionally unanswered.', action: 'Open Story Bible', view: 'bible' as View }, { id: 'writing', title: 'Continue Chapter 1', detail: 'Pick up from your recorded writing focus.', action: 'Continue writing', view: 'writing' as View }, { id: 'inbox', title: 'Sort one captured idea', detail: ideaCount ? `Your inbox has ${ideaCount} idea${ideaCount === 1 ? '' : 's'} waiting.` : 'Capture your first idea when ready.', action: 'Open idea inbox', view: 'inbox' as View }];
   return <div className="view"><PageIntro eyebrow="Unfinished work" title="A short list, not a pressure list." description="These are the next useful places to look. Complete only what helps you return to your story." /><div className="task-layout"><section className="task-list"><div className="task-list-header"><span className="section-label"><ListChecks size={17} /> Next steps</span><span>{completedTasks.length} of {tasks.length} complete</span></div>{tasks.map((task) => { const done = completedTasks.includes(task.id); return <div className={`task-row ${done ? 'task-done' : ''}`} key={task.id}><button className={`check-button ${done ? 'checked' : ''}`} onClick={() => toggleTask(task.id)} aria-label={done ? `Mark ${task.title} incomplete` : `Mark ${task.title} complete`}>{done && <Check size={15} />}</button><div className="task-copy"><strong>{task.title}</strong><span>{task.detail}</span></div>{!done && <button className="text-link" onClick={() => goTo(task.view)}>{task.action} <ArrowRight size={14} /></button>}</div>; })}</section><aside className="task-side"><div className="task-side-icon"><Target size={20} /></div><h3>One thing is enough.</h3><p>Story Compass keeps your unfinished work visible so you do not have to hold every thread in your head.</p><button className="button button-secondary" onClick={() => goTo('home')}>Back to home <ArrowLeft size={16} /></button></aside></div></div>;
 }
 

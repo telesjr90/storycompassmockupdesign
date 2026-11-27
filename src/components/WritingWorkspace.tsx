@@ -43,13 +43,16 @@ type WritingWorkspaceProps = {
   setText: Dispatch<SetStateAction<string>>;
   characters: AssistantCharacter[];
   events: AssistantEvent[];
+  projectName: string;
+  dirty: boolean;
+  justSaved: boolean;
   onSave: () => void;
   onToast: (message: string) => void;
 };
 
 type AssistantSection = 'focus' | 'known' | 'questions' | 'consistency' | 'search' | 'note';
 
-export function WritingWorkspace({ text, setText, characters, events, onSave, onToast }: WritingWorkspaceProps) {
+export function WritingWorkspace({ text, setText, characters, events, projectName, dirty, justSaved, onSave, onToast }: WritingWorkspaceProps) {
   const [assistantOpen, setAssistantOpen] = useState(true);
   const [assistantWidth, setAssistantWidth] = useState(360);
   const [focusMode, setFocusMode] = useState(false);
@@ -87,7 +90,7 @@ export function WritingWorkspace({ text, setText, characters, events, onSave, on
   return <div className={`writing-workspace ${focusMode ? 'writing-focus-mode' : ''}`}>
     {!focusMode && <aside className="manuscript-sidebar" aria-label="Manuscript navigation">
       <div className="workspace-column-title"><BookOpen size={16} /> Manuscript</div>
-      <div className="manuscript-project"><span className="status-dot" /> Detective Story <ChevronDown size={14} /></div>
+      <div className="manuscript-project"><span className="status-dot" /> {projectName} <ChevronDown size={14} /></div>
       <div className="manuscript-tree">
         <button className="tree-item tree-item-active"><FileText size={15} /><span>Chapter 1</span><span className="tree-count">open</span></button>
         <button className="tree-item"><FileText size={15} /><span>Chapter 2</span><span className="tree-count">not started</span></button>
@@ -105,7 +108,7 @@ export function WritingWorkspace({ text, setText, characters, events, onSave, on
     <section className="writing-center" aria-label="Manuscript editor">
       <div className="writing-center-header">
         <div><div className="eyebrow">Chapter 1 · Draft</div><h2>Continue your story</h2></div>
-        <div className="writing-center-actions"><span className="save-state"><span className="save-dot" /> Ready to save</span><button className="button button-quiet compact-button" onClick={() => setFocusMode((current) => !current)}>{focusMode ? <Minimize2 size={15} /> : <Maximize2 size={15} />} {focusMode ? 'Exit focus' : 'Focus mode'}</button><button className="button button-primary compact-button" onClick={onSave}><Check size={15} /> Save</button></div>
+        <div className="writing-center-actions"><span className={`save-state ${dirty ? 'save-state-unsaved' : ''} ${justSaved && !dirty ? 'save-state-saved' : ''}`}><span className="save-dot" /> {dirty ? 'Unsaved changes' : justSaved ? 'Saved just now' : 'All changes saved'}</span><button className="button button-quiet compact-button" onClick={() => setFocusMode((current) => !current)}>{focusMode ? <Minimize2 size={15} /> : <Maximize2 size={15} />} {focusMode ? 'Exit focus' : 'Focus mode'}</button><button className="button button-primary compact-button" onClick={onSave}><Check size={15} /> Save</button></div>
       </div>
       {focusPrompt && <div className="focus-prompt"><Target size={15} /><span><strong>Current focus:</strong> {focusPrompt}</span><button className="icon-button" onClick={() => setFocusPrompt('')} aria-label="Dismiss focus prompt"><X size={15} /></button></div>}
       <div className="chapter-context"><FileText size={15} /><span>Last session: exploring the detective’s home and the things he takes from his neighbors.</span></div>
